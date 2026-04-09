@@ -99,6 +99,14 @@ typedef struct {
 #define EVENT_JOB_ASSIGNED   "job/assigned"
 #define EVENT_JOB_FAILED     "job/failed"
 
+/* Filtros para o Servidor (Wildcards) */
+#define TOPIC_FILTER_VEHICLE_REGISTER "vc/vehicle/+/register/request"
+#define TOPIC_FILTER_JOB_SUBMIT       "vc/client/+/job/submit"
+#define TOPIC_FILTER_VEHICLE_STATUS   "vc/vehicle/+/status"
+
+/* Control topics */
+#define TOPIC_CONFIG_POLICY  "vc/server/config/policy"
+
 #define GPS_INVALID -999.0
 
 #endif

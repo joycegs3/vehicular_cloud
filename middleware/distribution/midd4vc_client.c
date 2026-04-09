@@ -1,6 +1,5 @@
 #include "midd4vc_client.h"
-//#include "midd4vc_protocol.h"
-//#include "midd4vc_job_codec.h"
+#include "midd4vc_protocol.h"
 #include "../infrastructure/mqtt_adapter.h"
 #include "../specifics/job_catalog.h"
 
@@ -33,6 +32,10 @@ struct midd4vc_client {
 
     midd4vc_subscription_t subs[MAX_SUBSCRIPTIONS];
     int sub_count;
+
+    // Data management
+    midd4vc_interceptor_fn services[10];
+    int services_count;
 };
 
 /* Encapsulamento de Getters/Setters para a aplicação */
@@ -53,6 +56,13 @@ void midd4vc_register_auto(midd4vc_client_t *c) {
     snprintf(payload, sizeof(payload), "{\"latitude\":%.6f,\"longitude\":%.6f}", c->lat, c->lon);
     
     midd4vc_register(c, payload);
+}
+
+/* Data Management */
+void midd4vc_add_service(midd4vc_client_t *c, midd4vc_interceptor_fn fn) {
+    if (c && c->services_count < 10) {
+        c->services[c->services_count++] = fn;
+    }
 }
 
 /* ---------- util ---------- */

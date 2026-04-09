@@ -25,6 +25,13 @@ typedef enum {
     ROLE_DASHBOARD
 } midd4vc_role_t;
 
+/* Data Management */
+
+typedef enum {
+    MIDD4VC_CONTINUE, // Segue para o próximo interceptador ou para o core
+    MIDD4VC_DROP      // Interrompe o fluxo (o serviço assumiu o controle)
+} midd4vc_action_t;
+
 /* Callbacks */
 //typedef struct midd4vc_job midd4vc_job_t;
 typedef void (*midd4vc_job_cb_t)(
@@ -49,6 +56,12 @@ typedef void (*midd4vc_sub_cb_t)(
     midd4vc_client_t *c,
     const char *topic,
     const char *payload
+);
+
+typedef midd4vc_action_t (*midd4vc_interceptor_fn)(
+    midd4vc_client_t *c,
+    const char *topic, 
+    char **payload
 );
 
 /* API */
@@ -138,6 +151,11 @@ void midd4vc_send_job_error(
 int midd4vc_execute_job_internal(
     midd4vc_client_t *c, 
     const midd4vc_job_t *job
+);
+
+void midd4vc_add_service(
+    midd4vc_client_t *c, 
+    midd4vc_interceptor_fn fn
 );
 
 #ifdef __cplusplus
