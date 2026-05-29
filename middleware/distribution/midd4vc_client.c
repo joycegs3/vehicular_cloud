@@ -1,7 +1,8 @@
 #include "midd4vc_client.h"
 #include "midd4vc_protocol.h"
+#include "midd4vc_job_codec.h"
 #include "../infrastructure/mqtt_adapter.h"
-#include "../specifics/job_catalog.h"
+// #include "../specifics/job_catalog.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -89,35 +90,50 @@ static void mqtt_message_router(void *userdata, const char *topic, const char *p
     midd4vc_client_t *c = userdata;
     if (!c || c->state != MIDD4VC_RUNNING) return;
 
+    char *working_payload = strdup(payload);
+
+    // Executa o Pipeline de Data Management (Interceptores)
+    for (int i = 0; i < c->services_count; i++) {
+        if (c->services[i](c, topic, &working_payload) == MIDD4VC_DROP) {
+            // Se o serviço retornar DROP, a mensagem é descartada (ex: filtragem ou consenso pendente)
+            free(working_payload);
+            return; 
+        }
+    }
+
     /* 1. Verifying custom subscritions via API (direct callbacks) */
     for (int i = 0; i < c->sub_count; i++) {
         if (mqtt_topic_match(c->subs[i].topic, topic)) {
-            c->subs[i].cb(c, topic, payload);
+            c->subs[i].cb(c, topic, working_payload);
         }
     }
 
     /* 2. Tasks Atribution (Vehicle/RSU) */
     if (strstr(topic, "/job/assign")) {
         midd4vc_job_t job;
-        if (midd4vc_parse_job(payload, &job)) {
+        if (midd4vc_parse_job(working_payload, &job)) {
             if (c->job_cb) c->job_cb(c, &job);
         } else {
             printf("[Midd4VC] Erro: Failed to parser the Task\n");
         }
+        free(working_payload);
         return;
     }
 
     /* 3. Tasks Results (Clients) */
     if (strstr(topic, "/job/result")) {
-        handle_job_result_raw(c, payload);
+        handle_job_result_raw(c, working_payload);
+        free(working_payload);
         return;
     }
 
     /* 4. Events */
     if (strstr(topic, "vc/event/")) {
-        if (c->event_cb) c->event_cb(c, topic, payload);
+        if (c->event_cb) c->event_cb(c, topic, working_payload);
+        free(working_payload);
         return;
     }
+    free(working_payload);
 }
 
 /* ---------- API de Criação e Configuração ---------- */
@@ -221,19 +237,62 @@ void midd4vc_publish(midd4vc_client_t *c, const char *topic, const char *payload
     }
 }
 
-void midd4vc_submit_job(midd4vc_client_t *c, const char *job_id, const char *service, 
-                        const char *function, double lat, double lon, const int *args, int argc) {
-    if (!c || c->state != MIDD4VC_RUNNING) return;
+// void midd4vc_submit_job(midd4vc_client_t *c, const char *job_id, const char *service, 
+//                         const char *function, double lat, double lon, const int *args, int argc) {
+//     if (!c || c->state != MIDD4VC_RUNNING) return;
 
-    char payload[512];
-    midd4vc_encode_job(payload, sizeof(payload), job_id, service, function, 
-                       c->client_id, lat, lon, args, argc);
+//     char payload[512];
 
-    char topic[128];
-    snprintf(topic, sizeof(topic), TOPIC_JOB_SUBMIT, c->client_id);
+//     /*
+//     char args_buf[256] = "[";
     
-    mqtt_publish(topic, payload);
-    printf("[Midd4VC] Job %s submetido com posição (%.4f, %.4f)\n", job_id, lat, lon);
+//     for (int i = 0; i < argc; i++) {
+//         char tmp[16];
+//         snprintf(tmp, sizeof(tmp), "%d%s", args[i], (i < argc - 1) ? "," : "");
+//         strcat(args_buf, tmp);
+//     }
+//     strcat(args_buf, "]");
+
+//     snprintf(payload, sizeof(payload),
+//         "{\"job_id\":\"%s\",\"service\":\"%s\",\"function\":\"%s\",\"args\":%s,\"client_id\":\"%s\",\"lat\":%.6f,\"lon\":%.6f}",
+//         job_id, service, function, args_buf, c->client_id, lat, lon);
+    
+//     */
+
+//     midd4vc_encode_job(payload, sizeof(payload), job_id, service, function, 
+//                        c->client_id, lat, lon, args, argc);  // incluir os parametros do container
+
+//     char topic[128];
+//     snprintf(topic, sizeof(topic), TOPIC_JOB_SUBMIT, c->client_id);
+    
+//     mqtt_publish(topic, payload);
+//     printf("[Midd4VC] Job %s submetido com posição (%.4f, %.4f)\n", job_id, lat, lon);
+// }
+
+// Submit Job modificado (TCC)
+
+void midd4vc_submit_job(midd4vc_client_t *c, const char *job_id, const char *service, 
+                        const char *function, double lat, double lon, const int *args, int argc, const container_spec_t *spec) {
+    if (!c || c->state != MIDD4VC_RUNNING || !spec) return;
+
+    char payload[16384]; // Aumento do buffer para caber o "job" (function code) a ser executado no container
+    int args_vazios[1] = {0};
+
+    int sucess = midd4vc_encode_job(
+        payload, sizeof(payload), 
+        job_id, service, function, c->client_id,
+        lat, lon, args_vazios, 0,
+        spec->image, spec->cpu_quota, spec->memory_limit, spec->command, spec->code
+    );
+
+    if (sucess) {
+        char topic[128];
+        snprintf(topic, sizeof(topic), TOPIC_JOB_SUBMIT, c->client_id);
+        mqtt_publish(topic, payload);
+        printf("[Midd4VC] Job %s (Container: %s) submetido com sucesso!\n", job_id, spec->image);
+    } else {
+        printf("[Midd4VC] Erro: buffer excedeu 16384 bytes.\n");
+    }
 }
 
 void midd4vc_register(midd4vc_client_t *c, const char *json_payload) {
@@ -262,6 +321,29 @@ static void handle_job_result_raw(midd4vc_client_t *c, const char *payload) {
     }
 }
 
+/* ---------- Tratamento de Resultados ---------- */
+
+/*
+static void handle_job_result_raw(midd4vc_client_t *c, const char *payload) {
+    if (!c || !payload || !c->job_result_cb) return;
+
+    char job_id[64] = {0};
+    char status_str[16] = {0};
+    int result = 0;
+
+    // Parser robusto via busca de chaves
+    char *p;
+    if ((p = strstr(payload, "\"job_id\":\""))) sscanf(p, "\"job_id\":\"%63[^\"]\"", job_id);
+    if ((p = strstr(payload, "\"status\":\""))) sscanf(p, "\"status\":\"%15[^\"]\"", status_str);
+    if ((p = strstr(payload, "\"result\":")))  sscanf(p, "\"result\":%d", &result);
+
+    midd4vc_job_status_t status = (strcmp(status_str, "DONE") == 0) ? JOB_DONE : JOB_ERROR;
+
+    // Chama o callback da aplicação (client_app)
+    c->job_result_cb(job_id, status, result);
+}
+*/
+
 void midd4vc_send_job_success(midd4vc_client_t *c, const char *client_id, const char *job_id, int result) {
     char payload[512];
     snprintf(payload, sizeof(payload),
@@ -279,34 +361,34 @@ const char *midd4vc_get_id(midd4vc_client_t *c) {
 
 /* ---------- Execução Dinâmica de Jobs (Cloud-Native Logic) ---------- */
 
-int midd4vc_execute_job_internal(midd4vc_client_t *c, const midd4vc_job_t *job) {
-    if (!c || !job) return -1;
+// int midd4vc_execute_job_internal(midd4vc_client_t *c, const midd4vc_job_t *job) {
+//     if (!c || !job) return -1;
 
-    // 1. O Middleware consulta o catálogo interno
-    // Isso resolve o problema de o vehicle.c precisar do .h
-    job_fn_t worker = job_catalog_lookup(job->service, job->function);
+//     // 1. O Middleware consulta o catálogo interno
+//     // Isso resolve o problema de o vehicle.c precisar do .h
+//     job_fn_t worker = job_catalog_lookup(job->service, job->function);
 
-    if (worker) {
-        // Sucesso: Função encontrada (estática ou .so carregado)
-        return worker(job->args, job->argc);
-    }
+//     if (worker) {
+//         // Sucesso: Função encontrada (estática ou .so carregado)
+//         return worker(job->args, job->argc);
+//     }
 
-    // 2. FALHA (Cache Miss): O código não existe no veículo
-    printf("[Midd4VC] SERVIÇO NÃO ENCONTRADO: %s.%s. Iniciando busca na nuvem...\n", 
-           job->service, job->function);
+//     // 2. FALHA (Cache Miss): O código não existe no veículo
+//     printf("[Midd4VC] SERVIÇO NÃO ENCONTRADO: %s.%s. Iniciando busca na nuvem...\n", 
+//            job->service, job->function);
 
-    // 3. Solicitação via MQTT para o Servidor (Dynamic Pull)
-    char pull_topic[128];
-    char pull_payload[256];
+//     // 3. Solicitação via MQTT para o Servidor (Dynamic Pull)
+//     char pull_topic[128];
+//     char pull_payload[256];
     
-    // Tópico para o servidor saber quem está pedindo o que
-    snprintf(pull_topic, sizeof(pull_topic), "vc/vehicle/%s/service/request", c->client_id);
-    snprintf(pull_payload, sizeof(pull_payload), 
-             "{\"service\":\"%s\",\"function\":\"%s\",\"node_id\":\"%s\"}", 
-             job->service, job->function, c->client_id);
+//     // Tópico para o servidor saber quem está pedindo o que
+//     snprintf(pull_topic, sizeof(pull_topic), "vc/vehicle/%s/service/request", c->client_id);
+//     snprintf(pull_payload, sizeof(pull_payload), 
+//              "{\"service\":\"%s\",\"function\":\"%s\",\"node_id\":\"%s\"}", 
+//              job->service, job->function, c->client_id);
     
-    midd4vc_publish(c, pull_topic, pull_payload);
+//     midd4vc_publish(c, pull_topic, pull_payload);
 
-    // Retornamos um código especial (ex: -404) para o vehicle.c saber que deve aguardar
-    return -404; 
-}
+//     // Retornamos um código especial (ex: -404) para o vehicle.c saber que deve aguardar
+//     return -404; 
+// }

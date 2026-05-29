@@ -4,6 +4,16 @@
 #include <stddef.h>
 #include <time.h>
 
+// Estrutura do container (TCC)
+
+typedef struct {
+    char image[128];        //Imagem do container
+    long cpu_quota;         // Limite de CPU do container
+    long memory_limit;      // Limite de memória do container
+    char command[256];      // Comando de execução
+    char code[8192];       // Código (job) a ser executado
+} container_spec_t;
+
 /* ---- Job model ---- */
 
 typedef struct {
@@ -17,6 +27,7 @@ typedef struct {
     char status[16];
     double lat;
     double lon;
+    container_spec_t container;     // Inserção das especificações do container na estrutura do job
 } midd4vc_job_t;
 
 /* ---- Job status ---- */
@@ -35,12 +46,13 @@ typedef struct {
     double longitude;
     time_t last_seen;
     int is_active;
+    long total_processed;
 } vehicle_t;
 
 typedef struct {
     char job_id[64];
     char client_id[64];
-    char payload[512];
+    char payload[16384];     // Aumentando o payload para suportar o código do job a ser enviado nas especificações do container
     int completed;
     int retries;
     struct timespec sent_at_spec;

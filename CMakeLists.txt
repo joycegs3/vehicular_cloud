@@ -18,7 +18,7 @@ include_directories(
     middleware/distribution
     middleware/infrastructure
     middleware/services
-    middleware/specifics
+    # middleware/specifics
 )
 
 # 4. Agrupar os arquivos do Middleware (O "Cérebro")
@@ -26,14 +26,14 @@ set(MIDDLEWARE_SOURCES
     middleware/distribution/midd4vc_client.c
     middleware/distribution/midd4vc_job_codec.c
     middleware/infrastructure/mqtt_adapter.c
-    middleware/specifics/job_catalog.c
+    # middleware/specifics/job_catalog.c
 )
 
 # 5. Criar o Executável do Veículo
-add_executable(vehicle_node 
-    vehicle/mobile.c 
-    ${MIDDLEWARE_SOURCES}
-)
+# add_executable(vehicle_node 
+#     vehicle/mobile.c 
+#     ${MIDDLEWARE_SOURCES}
+# )
 
 add_executable(Vehicle 
     vehicle/vehicle.c 
@@ -41,11 +41,11 @@ add_executable(Vehicle
 )
 
 # 6. Linkar as Bibliotecas
-target_link_libraries(vehicle_node 
-    ${MQTT_LIB} 
-    ${DL_LIB} 
-    m  # math library para cálculos de lat/lon
-)
+# target_link_libraries(vehicle_node 
+#     ${MQTT_LIB} 
+#     ${DL_LIB} 
+#     m  # math library para cálculos de lat/lon
+# )
 
 target_link_libraries(Vehicle 
     ${MQTT_LIB} 
@@ -54,18 +54,22 @@ target_link_libraries(Vehicle
 )
 
 # 7. Criar o Executável do Cliente (Simulador de Requisições)
-add_executable(client_app 
-    client/client.c
-    ${MIDDLEWARE_SOURCES}
-)
+# add_executable(client_app 
+#     client/client.c
+#     ${MIDDLEWARE_SOURCES}
+# )
 
 add_executable(Application 
     client/application.c
     ${MIDDLEWARE_SOURCES}
 )
 
-#target_link_libraries(client_app ${MQTT_LIB} ${DL_LIB} m)
-target_link_libraries(client_app paho-mqtt3c)
-target_link_libraries(Application paho-mqtt3c)
-target_link_libraries(vehicle_node paho-mqtt3c)
-target_link_libraries(Vehicle paho-mqtt3c)
+target_link_libraries(Application
+    ${MQTT_LIB}
+    ${DL_LIB}
+    m
+)
+# target_link_libraries(client_app paho-mqtt3c)
+# target_link_libraries(Application paho-mqtt3c)
+# target_link_libraries(vehicle_node paho-mqtt3c)
+# target_link_libraries(Vehicle paho-mqtt3c)

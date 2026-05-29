@@ -58,11 +58,7 @@ typedef void (*midd4vc_sub_cb_t)(
     const char *payload
 );
 
-typedef midd4vc_action_t (*midd4vc_interceptor_fn)(
-    midd4vc_client_t *c,
-    const char *topic, 
-    char **payload
-);
+typedef midd4vc_action_t (*midd4vc_interceptor_fn)(midd4vc_client_t *c, const char *topic, char **payload);
 
 /* API */
 midd4vc_client_t *midd4vc_create(
@@ -125,7 +121,8 @@ void midd4vc_submit_job(
     double lat,
     double lon,
     const int *args,
-    int argc);
+    int argc,
+    const container_spec_t *spec); // Parametro do container adicionado (TCC)
 
 void midd4vc_send_job_result(
     midd4vc_client_t *c,
@@ -148,15 +145,11 @@ void midd4vc_send_job_error(
     const char *msg
 );
 
-int midd4vc_execute_job_internal(
-    midd4vc_client_t *c, 
-    const midd4vc_job_t *job
-);
-
 void midd4vc_add_service(
     midd4vc_client_t *c, 
     midd4vc_interceptor_fn fn
 );
+
 
 #ifdef __cplusplus
 }

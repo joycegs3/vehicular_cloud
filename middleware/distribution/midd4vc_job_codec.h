@@ -20,8 +20,12 @@ void midd4vc_build_job_result(
     int result
 );
 
+// Campos do containerd incluídos na codificação
+
 int midd4vc_encode_job(char *dest, size_t dest_sz, const char *job_id, const char *service, 
                        const char *function, const char *client_id, 
-                       double lat, double lon, const int *args, int argc);
+                       double lat, double lon, const int *args, int argc,
+                       const char *container_image, long container_cpu, 
+                       long container_mem, const char *container_command, const char *container_code);
 
 #endif

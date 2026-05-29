@@ -64,21 +64,96 @@ double kmh_to_lat_delta(double kmh) {
 /**
  * Handler disparado ao receber um Job do Middleware
  */
+// void on_job_received(midd4vc_client_t *c, const midd4vc_job_t *job) {
+//     printf("\n>>> [%s] JOB RECEIVED: ID %s em (%.6f, %.6f)\n", 
+//             vehicle_node.id, job->job_id, vehicle_node.lat, vehicle_node.lon);
+
+//     // Execução da tarefa lógica
+//     int result = midd4vc_execute_job_internal(c, job);
+    
+//     if (result >= 0) {
+//         printf("<<< [%s] Job %s concluído. Enviando resultado: %d\n", 
+//                 vehicle_node.id, job->job_id, result);
+//         midd4vc_send_job_success(c, job->client_id, job->job_id, result);
+//     } else {
+//         printf("!!! [%s] Erro na execução do Job %s\n", vehicle_node.id, job->job_id);
+//     }
+// }
+
+// On Job Received moficado (TCC)
+
 void on_job_received(midd4vc_client_t *c, const midd4vc_job_t *job) {
     printf("\n>>> [%s] JOB RECEIVED: ID %s em (%.6f, %.6f)\n", 
             vehicle_node.id, job->job_id, vehicle_node.lat, vehicle_node.lon);
 
-    // Execução da tarefa lógica
-    int result = midd4vc_execute_job_internal(c, job);
+    // 1. Proteção Arquitetural: Só aceita jobs com especificações de container
+    if (strlen(job->container.image) == 0) {
+        printf("!!! [%s] Erro: Job %s rejeitado (Não contém especificação do container).\n", vehicle_node.id, job->job_id);
+        midd4vc_send_job_success(c, job->client_id, job->job_id, -99);
+        return;
+    }
+
+    printf("----Configurando Container com a imagem: %s\n", job->container.image);
+
+    // 2. Extrai o código C do JSON para um arquivo temporário
+    char filepath[256];
+    snprintf(filepath, sizeof(filepath), "/tmp/job_tcc_%s.c", job->job_id);
+    FILE *fp = fopen(filepath, "w");
+    if (fp) {
+        fprintf(fp, "%s", job->container.code);
+        fclose(fp);
+    } else {
+        printf("!!! [%s] Erro: Falha ao escrever no disco.\n", vehicle_node.id);
+        midd4vc_send_job_success(c, job->client_id, job->job_id, -1);
+        return;
+    }
+
+    // 3. Montagem do comando do nerdctl
+    char cmd[2048];
+    snprintf(cmd, sizeof(cmd),
+             "sudo nerdctl run --rm "
+             "--cpus=%f "                        
+             "--memory=%ldb "                    
+             "-v %s:/workspace/job.c "           
+             "%s "                               
+             "%s",                               
+             (job->container.cpu_quota / 100000.0), 
+             job->container.memory_limit,
+             filepath,
+             job->container.image,
+             job->container.command);
+
+    printf("----Executando containerd...\n");
+
+    // 4. Invoca o container e lê a saída (stdout)
+    FILE *pipe = popen(cmd, "r");
+    if (!pipe) {
+        remove(filepath);
+        midd4vc_send_job_success(c, job->client_id, job->job_id, -2);
+        return;
+    }
+
+    char buffer[256];
+    char result_str[4096] = {0}; 
+    while (fgets(buffer, sizeof(buffer), pipe) != NULL) {
+        strncat(result_str, buffer, sizeof(result_str) - strlen(result_str) - 1);
+    }
+    pclose(pipe);
+    remove(filepath); // Limpa o arquivo C temporário
+
+    // 5. Converte o resultado e devolve para o Middleware
+    int result_number = atoi(result_str);
+    printf("<<< [%s] Container destruído. Resultado: %d\n", vehicle_node.id, result_number);
     
-    if (result >= 0) {
+    if (result_number >= 0) {
         printf("<<< [%s] Job %s concluído. Enviando resultado: %d\n", 
-                vehicle_node.id, job->job_id, result);
-        midd4vc_send_job_success(c, job->client_id, job->job_id, result);
+                vehicle_node.id, job->job_id, result_number);
+        midd4vc_send_job_success(c, job->client_id, job->job_id, result_number);
     } else {
         printf("!!! [%s] Erro na execução do Job %s\n", vehicle_node.id, job->job_id);
     }
 }
+
 
 int main(int argc, char *argv[]) {
     srand(time(NULL) + getpid());
@@ -90,7 +165,8 @@ int main(int argc, char *argv[]) {
     if (argc >= 3) {
         strncpy(vehicle_node.id, argv[2], 63);
     } else {
-        snprintf(vehicle_node.id, sizeof(vehicle_node.id), "veh_%03d", rand() % 1000, (int)velocidade_kmh);
+        // snprintf(vehicle_node.id, sizeof(vehicle_node.id), "veh_%03d", rand() % 1000, (int)velocidade_kmh);
+        snprintf(vehicle_node.id, sizeof(vehicle_node.id), "veh_%03d_v%d", rand() % 1000, (int)velocidade_kmh); // Add espaço p/ imprimir a vel
     }
 
     // 2. Configuração de Velocidade e Mobilidade
@@ -111,7 +187,7 @@ int main(int argc, char *argv[]) {
     midd4vc_set_job_handler(v_node, on_job_received);
     midd4vc_start(v_node);
 
-    printf("[%s] Online | Modo: %s | Vel: %.1f km/h\n",
+    printf("[%s] Online (TCC) | Modo: %s | Vel: %.1f km/h\n",
         vehicle_node.id, vehicle_node.is_mobile ? "MOBILE" : "STATIONARY", velocidade_kmh);
 
     while (1) {
