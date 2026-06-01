@@ -86,7 +86,7 @@ void on_job_received(midd4vc_client_t *c, const midd4vc_job_t *job) {
     printf("\n>>> [%s] JOB RECEIVED: ID %s em (%.6f, %.6f)\n", 
             vehicle_node.id, job->job_id, vehicle_node.lat, vehicle_node.lon);
 
-    // 1. Proteção Arquitetural: Só aceita jobs com especificações de container
+    // 1. Só aceita jobs com specs de container (verifica se a imagem existe)
     if (strlen(job->container.image) == 0) {
         printf("!!! [%s] Erro: Job %s rejeitado (Não contém especificação do container).\n", vehicle_node.id, job->job_id);
         midd4vc_send_job_success(c, job->client_id, job->job_id, -99);
